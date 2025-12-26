@@ -76,20 +76,9 @@ class MainWindow(QMainWindow):
         header_layout = QVBoxLayout()
         header_layout.setSpacing(2)
         
-        # Title Line
-        title_layout = QHBoxLayout()
-        title = QLabel("DC整合包数据迁移工具")
-        font = title.font()
-        font.setBold(True)
-        font.setPointSize(10)
-        title.setFont(font)
-        title_layout.addWidget(title)
-        title_layout.addStretch()
-        
         desc = QLabel("帮你快速迁移旧版DC整合包数据（存档/设置/地图等）到新版中。")
         tutorial = QLabel("<b>使用方法：</b>1. 先安装新版DC整合包 &nbsp; 2. 使用本工具迁移旧版数据到新版 &nbsp; 3. 自行添加可选MOD")
         
-        header_layout.addLayout(title_layout)
         header_layout.addWidget(desc)
         header_layout.addWidget(tutorial)
         
