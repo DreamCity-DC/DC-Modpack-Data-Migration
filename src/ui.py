@@ -57,6 +57,21 @@ class MainWindow(QMainWindow):
         self.adjustSize()
         self.setFixedSize(self.size())
 
+    @staticmethod
+    def _normalize_path_for_fs(path: str) -> str:
+        if not path:
+            return path
+        # Keep internal paths in platform-native form.
+        return os.path.normpath(path)
+
+    @staticmethod
+    def _format_path_for_ui(path: str) -> str:
+        if not path:
+            return path
+        # Qt/Python on Windows can operate with both separators, but for UI readability
+        # we consistently display forward slashes.
+        return path.replace('\\', '/')
+
     def setup_header(self):
         header_layout = QVBoxLayout()
         header_layout.setSpacing(2)
@@ -253,9 +268,11 @@ class MainWindow(QMainWindow):
 
     def set_to_path(self, path):
         if path:
-            self.to_root_path = path
-            self.lbl_to_path.setText(path)
-            self.lbl_to_path.setToolTip(path)
+            normalized = self._normalize_path_for_fs(path)
+            display = self._format_path_for_ui(normalized)
+            self.to_root_path = normalized
+            self.lbl_to_path.setText(display)
+            self.lbl_to_path.setToolTip(display)
         else:
             self.to_root_path = None
             self.lbl_to_path.setText("未选择路径")
@@ -263,9 +280,11 @@ class MainWindow(QMainWindow):
 
     def set_from_path(self, path):
         if path:
-            self.from_root_path = path
-            self.lbl_from_path.setText(path)
-            self.lbl_from_path.setToolTip(path)
+            normalized = self._normalize_path_for_fs(path)
+            display = self._format_path_for_ui(normalized)
+            self.from_root_path = normalized
+            self.lbl_from_path.setText(display)
+            self.lbl_from_path.setToolTip(display)
         else:
             self.from_root_path = None
             self.lbl_from_path.setText("未选择路径")
@@ -365,6 +384,9 @@ class MainWindow(QMainWindow):
         from_full_path = os.path.join(self.from_root_path, '.minecraft', 'versions', from_ver)
         to_full_path = os.path.join(self.to_root_path, '.minecraft', 'versions', to_ver)
 
+        from_full_path = self._normalize_path_for_fs(from_full_path)
+        to_full_path = self._normalize_path_for_fs(to_full_path)
+
         if os.path.normpath(from_full_path) == os.path.normpath(to_full_path):
             QMessageBox.warning(self, "错误", "源目录和目标目录相同，请重新选择")
             return
@@ -374,8 +396,8 @@ class MainWindow(QMainWindow):
         confirm.setWindowTitle("确认")
         confirm.setText("确认进行数据迁移工作？")
         confirm.setInformativeText(
-            f"从：{from_full_path}\n\n"
-            f"到：{to_full_path}"
+            f"从：{self._format_path_for_ui(from_full_path)}\n\n"
+            f"到：{self._format_path_for_ui(to_full_path)}"
         )
         confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
