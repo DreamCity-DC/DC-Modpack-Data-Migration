@@ -45,6 +45,7 @@ def get_dependence_path(file_name: str) -> str:
 
     return cwd_path
 
+
 def get_versions(base_path):
     """Get list of version folders in .minecraft/versions."""
     versions_path = os.path.join(base_path, '.minecraft', 'versions')
@@ -80,25 +81,37 @@ def find_max_version(versions):
 
     return max(versions, key=version_key)
 
-def setup_logging():
+
+def setup_logging(target_version_path: str):
+    """配置日志系统。
+
+    日志输出到目标版本目录下的 logs 文件夹：
+    `.minecraft\\versions\\<目标版本>\\logs\\{LOG_FILE_NAME}`
+
+    之所以延迟初始化，是因为在用户尚未选择目标版本并开始迁移之前，
+    该 logs 目录并不存在（也不应该生成/写入日志）。
     """
-    配置日志系统，输出到文件，不输出到控制台
-    """
-    log_file = LOG_FILE_NAME
-    
-    # 如果日志文件存在，先清空（可选，或者追加）
-    # 这里选择追加模式，但为了每次运行清晰，也可以做分割。
-    # 简单起见，使用追加模式。
-    
-    logging.basicConfig(
-        filename=log_file,
-        filemode='a',
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        level=logging.INFO,
-        encoding='utf-8'
-    )
-    
-    # 确保未捕获的异常也能记录到日志
+
+    if not target_version_path:
+        raise ValueError("target_version_path is required")
+
+    logs_dir = os.path.join(target_version_path, 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+    log_file = os.path.join(logs_dir, LOG_FILE_NAME)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Reset handlers to avoid duplicate logs across multiple migrations.
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    root_logger.addHandler(file_handler)
+
+    # Ensure uncaught exceptions are written once logging is initialized.
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -106,10 +119,24 @@ def setup_logging():
         logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
 
     sys.excepthook = handle_exception
-    
-    logging.info("="*50)
-    logging.info("DC Data Migration Tool Started")
-    logging.info("="*50)
+
+    root_logger.info("=" * 50)
+    root_logger.info("DC Data Migration Tool Started")
+    root_logger.info("Log file: %s", log_file)
+    root_logger.info("=" * 50)
+
+
+def setup_null_logging():
+    """在用户开始迁移前禁用日志输出。
+
+    目标：在没有日志目录（目标版本 logs）之前，不写文件、也不输出到控制台。
+    """
+    root_logger = logging.getLogger()
+    # Reset handlers to avoid inheriting environment defaults.
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+    root_logger.addHandler(logging.NullHandler())
+
 
 def get_logger():
     return logging.getLogger()

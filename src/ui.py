@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QTextOption
 
 from src.data_migration import MigrationWorker
-from src.utils import get_versions, find_max_version, get_resource_path, get_dependence_path
+from src.utils import get_versions, find_max_version, get_resource_path, get_dependence_path, setup_logging
 from src.constants import APP_VERSION, MIGRATION_RULE_FILE_NAME
 
 class MainWindow(QMainWindow):
@@ -48,7 +48,12 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.init_defaults()
 
-        # Disable resizing (remove all resize handling logic)
+        # Prevent long status text from stretching layout
+        self._status_elide_width = (
+            self.from_group.width() + self.arrow_label.width() + self.to_group.width()
+        )
+
+        # Disable resizing
         self.adjustSize()
         self.setFixedSize(self.size())
 
@@ -58,7 +63,7 @@ class MainWindow(QMainWindow):
         
         # Title Line
         title_layout = QHBoxLayout()
-        title = QLabel(f"DC整合包数据迁移工具")
+        title = QLabel("DC整合包数据迁移工具")
         font = title.font()
         font.setBold(True)
         font.setPointSize(10)
@@ -211,6 +216,9 @@ class MainWindow(QMainWindow):
         
         self.lbl_status = QLabel("")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.lbl_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.lbl_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.lbl_status.setMinimumWidth(0)
         font = self.lbl_status.font()
         font.setPointSize(8)
         self.lbl_status.setFont(font)
@@ -315,8 +323,8 @@ class MainWindow(QMainWindow):
 
         # Fallback: Try to find versions anyway, maybe they selected .minecraft
         elif os.path.basename(dir_path) == '.minecraft':
-             detected_root = os.path.dirname(dir_path)
-             valid_versions = get_versions(detected_root)
+            detected_root = os.path.dirname(dir_path)
+            valid_versions = get_versions(detected_root)
 
         if detected_root and valid_versions:
             set_path_func(detected_root)
@@ -364,7 +372,7 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox(self)
         confirm.setIcon(QMessageBox.Icon.Question)
         confirm.setWindowTitle("确认")
-        confirm.setText("确认进行数据迁移工作：")
+        confirm.setText("确认进行数据迁移工作？")
         confirm.setInformativeText(
             f"从：{from_full_path}\n\n"
             f"到：{to_full_path}"
@@ -378,6 +386,14 @@ class MainWindow(QMainWindow):
 
         if confirm.exec() != QMessageBox.StandardButton.Yes:
             return
+
+        # Initialize logging only when migration is about to start.
+        # Logs are written into: .minecraft\versions\<目标版本>\logs
+        try:
+            setup_logging(to_full_path)
+        except Exception:
+            # If logging setup fails, still allow migration to proceed.
+            pass
         
         migration_rule_file = get_dependence_path(MIGRATION_RULE_FILE_NAME)
 
@@ -394,7 +410,15 @@ class MainWindow(QMainWindow):
 
     def update_progress(self, value, msg):
         self.progress_bar.setValue(value)
-        self.lbl_status.setText(msg)
+        msg = msg or ""
+        self.lbl_status.setToolTip(msg)
+        self.lbl_status.setText(
+            self.lbl_status.fontMetrics().elidedText(
+                msg,
+                Qt.TextElideMode.ElideMiddle,
+                self._status_elide_width,
+            )
+        )
         if not self.lbl_status.isVisible():
             self.lbl_status.show()
 
