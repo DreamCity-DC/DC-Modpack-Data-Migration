@@ -1,0 +1,12 @@
+{
+    "pylint.args": [
+        "--extension-pkg-allow-list=PyQt6",
+        "--unsafe-load-any-extension=yes",
+        "--disable=trailing-whitespace,missing-module-docstring,missing-class-docstring,missing-function-docstring,logging-fstring-interpolation,logging-not-lazy,unused-import"
+    ],
+    "python.linting.pylintArgs": [
+        "--extension-pkg-allow-list=PyQt6",
+        "--unsafe-load-any-extension=yes",
+        "--disable=trailing-whitespace,missing-module-docstring,missing-class-docstring,missing-function-docstring,logging-fstring-interpolation,logging-not-lazy,unused-import"
+    ]
+}
