@@ -397,7 +397,8 @@ class MainWindow(QMainWindow):
         confirm.setText("确认进行数据迁移工作？")
         confirm.setInformativeText(
             f"从：{self._format_path_for_ui(from_full_path)}\n\n"
-            f"到：{self._format_path_for_ui(to_full_path)}"
+            f"到：{self._format_path_for_ui(to_full_path)}\n\n"
+            "目标整合包的数据将会被覆盖，请确认无误"
         )
         confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
