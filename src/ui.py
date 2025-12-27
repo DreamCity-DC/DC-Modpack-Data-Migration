@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         lbl_title = QLabel("整合包文件夹:")
         lbl_title.setStyleSheet("font-weight: bold; color: #444;")
         
-        btn_browse = QPushButton("浏览...")
+        btn_browse = QPushButton("选择...")
         btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_browse.setFixedWidth(60)
         btn_browse.setFixedHeight(24)
@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
         self.lbl_status.setFont(font)
         self.lbl_status.hide()
         
-        self.btn_migrate = QPushButton("开始迁移")
+        self.btn_migrate = QPushButton("开始迁移数据")
         self.btn_migrate.setMinimumHeight(30)
         self.btn_migrate.setEnabled(False)
         self.btn_migrate.clicked.connect(self.start_migration)
