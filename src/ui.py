@@ -188,8 +188,13 @@ class MainWindow(QMainWindow):
                 font-family: "Segoe UI", "Microsoft YaHei";
                 font-size: 12px;
             }
+            QTextEdit:disabled {
+                color: #666;
+            }
         """)
         path_widget.setFixedHeight(45) 
+        # Keep path display disabled until a valid directory is selected.
+        path_widget.setEnabled(False)
         
         # Row 3: Version Header
         lbl_ver = QLabel("游戏版本:")
@@ -262,10 +267,13 @@ class MainWindow(QMainWindow):
             self.to_root_path = normalized
             self.lbl_to_path.setText(display)
             self.lbl_to_path.setToolTip(display)
+            self.lbl_to_path.setEnabled(True)
         else:
             self.to_root_path = None
-            self.lbl_to_path.setText("未选择路径")
+            # Use placeholder text for the empty state to keep visuals consistent.
+            self.lbl_to_path.setText("")
             self.lbl_to_path.setToolTip("")
+            self.lbl_to_path.setEnabled(False)
 
     def set_from_path(self, path):
         if path:
@@ -274,10 +282,13 @@ class MainWindow(QMainWindow):
             self.from_root_path = normalized
             self.lbl_from_path.setText(display)
             self.lbl_from_path.setToolTip(display)
+            self.lbl_from_path.setEnabled(True)
         else:
             self.from_root_path = None
-            self.lbl_from_path.setText("未选择路径")
+            # Use placeholder text for the empty state to keep visuals consistent.
+            self.lbl_from_path.setText("")
             self.lbl_from_path.setToolTip("")
+            self.lbl_from_path.setEnabled(False)
 
     def select_from_directory(self):
         self.handle_directory_selection(
