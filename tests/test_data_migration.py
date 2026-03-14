@@ -32,6 +32,7 @@ class TestMigrationWorkerRules(unittest.TestCase):
                 "!saves/backup/  # exclude backup\n"
                 "config\\options.txt\n"
                 "!mods/*.jar\n"
+                "?extras/\n"
             )
             cfg.write_text(content, encoding="utf-8")
 
@@ -41,10 +42,11 @@ class TestMigrationWorkerRules(unittest.TestCase):
             self.assertEqual(
                 rules,
                 [
-                    ("saves/", False),
-                    ("saves/backup/", True),
-                    ("config/options.txt", False),
-                    ("mods/*.jar", True),
+                    ("saves/", "include"),
+                    ("saves/backup/", "exclude"),
+                    ("config/options.txt", "include"),
+                    ("mods/*.jar", "exclude"),
+                    ("extras/", "optional"),
                 ],
             )
 
@@ -69,36 +71,66 @@ class TestMigrationWorkerRules(unittest.TestCase):
             self.assertEqual(
                 rules,
                 [
-                    ("logs/${OLD_VERION_NAME}.log", False),
-                    ("logs/1.20.1.log", False),
-                    ("logs/1.21.4.log", False),
-                    ("keep/${UNKNOWN_PLACEHOLDER}.txt", False),
+                    ("logs/${OLD_VERION_NAME}.log", "include"),
+                    ("logs/1.20.1.log", "include"),
+                    ("logs/1.21.4.log", "include"),
+                    ("keep/${UNKNOWN_PLACEHOLDER}.txt", "include"),
                 ],
             )
 
     def test_should_copy_default_false_and_bottom_rules_override(self):
         worker = MigrationWorker("from", "to", "cfg")
 
-        rules = [("saves/", False)]
+        rules = [("saves/", "include")]
         self.assertTrue(worker.should_copy("saves/level.dat", rules))
         self.assertFalse(worker.should_copy("mods/a.jar", rules))
 
         # Exclude overrides include when later in file.
-        rules = [("saves/", False), ("saves/secret.txt", True)]
+        rules = [("saves/", "include"), ("saves/secret.txt", "exclude")]
         self.assertTrue(worker.should_copy("saves/level.dat", rules))
         self.assertFalse(worker.should_copy("saves/secret.txt", rules))
 
         # Include overrides exclude when later in file.
-        rules = [("saves/", True), ("saves/", False)]
+        rules = [("saves/", "exclude"), ("saves/", "include")]
         self.assertTrue(worker.should_copy("saves/level.dat", rules))
 
     def test_should_copy_directory_patterns_with_wildcards(self):
         worker = MigrationWorker("from", "to", "cfg")
 
-        rules = [("*IAS*/", False)]
+        rules = [("*IAS*/", "include")]
         self.assertTrue(worker.should_copy("AutoIAS/config.txt", rules))
         self.assertTrue(worker.should_copy("MyIASStuff/sub/a.txt", rules))
         self.assertFalse(worker.should_copy("Other/mods.txt", rules))
+
+    def test_should_copy_optional_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            src = base / "src"
+            dst = base / "dst"
+            src.mkdir()
+            dst.mkdir()
+
+            # Destination has config/existing.json but not config/missing.json
+            (dst / "config").mkdir()
+            (dst / "config" / "existing.json").write_text("OLD", encoding="utf-8")
+
+            worker = MigrationWorker(str(src), str(dst), "cfg")
+
+            rules = [("config/", "optional")]
+            # File doesn't exist at destination -> should copy
+            self.assertTrue(worker.should_copy("config/missing.json", rules))
+            # File exists at destination -> should not copy
+            self.assertFalse(worker.should_copy("config/existing.json", rules))
+            # Unmatched file -> default False
+            self.assertFalse(worker.should_copy("mods/a.jar", rules))
+
+            # Optional overridden by later exclude
+            rules = [("config/", "optional"), ("config/missing.json", "exclude")]
+            self.assertFalse(worker.should_copy("config/missing.json", rules))
+
+            # Optional overridden by later include -> always copy
+            rules = [("config/", "optional"), ("config/existing.json", "include")]
+            self.assertTrue(worker.should_copy("config/existing.json", rules))
 
 
 class TestMigrationWorkerScanAndRun(unittest.TestCase):
@@ -120,7 +152,7 @@ class TestMigrationWorkerScanAndRun(unittest.TestCase):
             (root / "mods" / "a.jar").write_text("jar", encoding="utf-8")
 
             worker = MigrationWorker(str(root), "to", "cfg")
-            rules = [("saves/", False), ("mods/", True)]
+            rules = [("saves/", "include"), ("mods/", "exclude")]
             files = worker.scan_files(str(root), rules)
 
             self.assertEqual(sorted(files), ["saves/level.dat"])
@@ -179,3 +211,61 @@ class TestMigrationWorkerScanAndRun(unittest.TestCase):
             ok, msg = finished_events[-1]
             self.assertFalse(ok)
             self.assertIn("Source path does not exist", msg)
+
+    def test_scan_files_optional_rule_skips_existing_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            src = base / "src"
+            dst = base / "dst"
+            src.mkdir()
+            dst.mkdir()
+
+            # Source has two config files
+            (src / "config").mkdir()
+            (src / "config" / "a.json").write_text("SRC_A", encoding="utf-8")
+            (src / "config" / "b.json").write_text("SRC_B", encoding="utf-8")
+
+            # Destination already has one of them
+            (dst / "config").mkdir()
+            (dst / "config" / "a.json").write_text("DST_A", encoding="utf-8")
+
+            worker = MigrationWorker(str(src), str(dst), "cfg")
+            rules = [("config/", "optional")]
+            files = worker.scan_files(str(src), rules)
+
+            # Only b.json should be included (a.json already exists at destination)
+            self.assertEqual(sorted(files), ["config/b.json"])
+
+    def test_run_optional_rule_does_not_overwrite_existing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            src = base / "src"
+            dst = base / "dst"
+            src.mkdir()
+            dst.mkdir()
+
+            (src / "config").mkdir()
+            (src / "config" / "existing.txt").write_text("NEW", encoding="utf-8")
+            (src / "config" / "missing.txt").write_text("NEW", encoding="utf-8")
+
+            (dst / "config").mkdir()
+            (dst / "config" / "existing.txt").write_text("OLD", encoding="utf-8")
+
+            cfg = base / "rules.conf"
+            cfg.write_text("?config/\n", encoding="utf-8")
+
+            worker = MigrationWorker(str(src), str(dst), str(cfg))
+            finished_events = []
+            worker.finished.connect(lambda ok, msg: finished_events.append((ok, msg)))
+
+            worker.run()
+
+            # existing.txt should NOT be overwritten
+            self.assertEqual(
+                (dst / "config" / "existing.txt").read_text(encoding="utf-8"), "OLD"
+            )
+            # missing.txt should be copied
+            self.assertTrue((dst / "config" / "missing.txt").exists())
+            self.assertEqual(
+                (dst / "config" / "missing.txt").read_text(encoding="utf-8"), "NEW"
+            )

@@ -66,7 +66,7 @@ class MigrationWorker(QThread):
             self.logger.info(f"Loaded {len(rules)} rules.")
 
             # 2. Scan Files
-            # AI写的答辩。应该写成构建目录树然后按规则剪枝
+            # 其它AI写的屎山，应该写成构建目录树然后按规则剪枝
             # 懒：能跑就不要动
             self.progress_update.emit(0, "正在扫描文件...")
             files_to_copy = self.scan_files(self.from_path, rules)
@@ -112,7 +112,8 @@ class MigrationWorker(QThread):
     def parse_rules(self, config_path):
         """Parse the config file.
 
-        Returns a list of tuples: (pattern, is_exclude)
+        Returns a list of tuples: (pattern, rule_type)
+        rule_type is one of: 'include', 'exclude', 'optional'
         """
         rules = []
         if not os.path.exists(config_path):
@@ -136,18 +137,21 @@ class MigrationWorker(QThread):
                 if not line:
                     continue
 
-                is_exclude = False
                 if line.startswith('!'):
-                    is_exclude = True
+                    rule_type = 'exclude'
+                    pattern = line[1:]
+                elif line.startswith('?'):
+                    rule_type = 'optional'
                     pattern = line[1:]
                 else:
+                    rule_type = 'include'
                     pattern = line
 
                 pattern = self._expand_placeholders(pattern)
 
                 # Normalize slashes
                 pattern = pattern.replace('\\', '/')
-                rules.append((pattern, is_exclude))
+                rules.append((pattern, rule_type))
         return rules
 
     def scan_files(self, root_dir, rules):
@@ -179,10 +183,11 @@ class MigrationWorker(QThread):
 
         Default is NOT to copy (unless matched by an include rule).
         Bottom rules override top rules.
+        Optional rules copy only when the destination file doesn't exist.
         """
         decision = False  # Default: Do not copy
 
-        for pattern, is_exclude in rules:
+        for pattern, rule_type in rules:
             # Check if pattern matches
             # We need to handle directory matching logic from user request:
             # "saves/" means "saves" dir and everything inside.
@@ -214,8 +219,11 @@ class MigrationWorker(QThread):
                     match = True
 
             if match:
-                if is_exclude:
+                if rule_type == 'exclude':
                     decision = False
+                elif rule_type == 'optional':
+                    dst_file = os.path.join(self.to_path, rel_path)
+                    decision = not os.path.exists(dst_file)
                 else:
                     decision = True
 
