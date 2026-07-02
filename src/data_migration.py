@@ -67,7 +67,7 @@ class MigrationWorker(QThread):
 
             # 2. Scan Files
             # 其它AI写的屎山，应该写成构建目录树然后按规则剪枝
-            # 懒：能跑就不要动
+            # 但是能跑就不要动
             self.progress_update.emit(0, "正在扫描文件...")
             files_to_copy = self.scan_files(self.from_path, rules)
             total_files = len(files_to_copy)
