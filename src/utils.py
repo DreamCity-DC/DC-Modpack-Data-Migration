@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 from src.constants import LOG_FILE_NAME
 
@@ -63,21 +64,16 @@ def get_versions(base_path):
 def find_max_version(versions):
     """Find the 'largest' version string.
 
-    Simple heuristic: split by dots, compare integers.
+    Simple heuristic: extract number groups, compare integers.
     """
     if not versions:
         return None
 
     def version_key(v):
-        # Extract numbers from string, e.g. "1.21.11" -> [1, 21, 11]
-        # Handle non-numeric parts gracefully
-        parts = []
-        for part in v.replace('-', '.').split('.'):
-            if part.isdigit():
-                parts.append(int(part))
-            else:
-                parts.append(0)
-        return parts
+        # Extract embedded numbers from folder names, e.g.
+        # "【DreamCity】生存服26.2" -> [26, 2].
+        parts = [int(part) for part in re.findall(r'\d+', v)]
+        return parts or [0]
 
     return max(versions, key=version_key)
 
