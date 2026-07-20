@@ -1,0 +1,21 @@
+[project]
+name = "dc-data-migration"
+version = "1.0.6"
+description = "Migrate DreamCity modpack data between versions"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pyqt6>=6.10.1,<7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2,<9",
+]
+build = [
+    "pyinstaller>=6.17.0,<7",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

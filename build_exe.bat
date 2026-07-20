@@ -1,13 +1,29 @@
 @echo off
-echo Installing requirements...
-python -m pip install -r requirements.txt
-
+setlocal
+cd /d "%~dp0"
 set "ROOT=%~dp0"
 
-echo Building EXE...
-if not exist "spec" mkdir "spec"
+echo Building EXE with uv...
 
-pyinstaller --noconsole --onefile --clean --noconfirm --specpath "spec" --name "dc_data_migration" --icon "%ROOT%assets\icon.ico" --add-data "%ROOT%data_migration_rules.conf;." --add-data "%ROOT%assets\icon.ico;assets" main.py
+uv run --locked --no-dev --group build pyinstaller ^
+    --noconsole ^
+    --onefile ^
+    --clean ^
+    --noconfirm ^
+    --specpath "build\spec" ^
+    --workpath "build\pyinstaller" ^
+    --distpath "dist" ^
+    --name "dc_data_migration" ^
+    --icon "%ROOT%assets\icon.ico" ^
+    --add-data "%ROOT%data_migration_rules.conf;." ^
+    --add-data "%ROOT%assets\icon.ico;assets" ^
+    "main.py"
+
+if errorlevel 1 (
+    echo Build failed.
+    pause
+    exit /b 1
+)
 
 echo Build complete. The executable is in the 'dist' folder.
 pause

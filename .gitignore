@@ -1,5 +1,15 @@
+# Python
 __pycache__/
-dist/
+*.py[cod]
+.pytest_cache/
+
+# uv
+.venv/
+
+# Build output
 build/
+dist/
 *.logs
+
+# Editor
 .vscode/
