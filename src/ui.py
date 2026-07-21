@@ -2,31 +2,197 @@ import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QComboBox, QFileDialog, QFrame, QMessageBox, 
-    QProgressBar, QSpacerItem, QSizePolicy, QGroupBox, QLineEdit, QTextEdit
+    QProgressBar, QSizePolicy, QAbstractButton
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QTextOption
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen
 
 from src.data_migration import MigrationWorker
 from src.utils import get_versions, find_max_version, get_resource_path, get_dependence_path, setup_logging
 from src.constants import APP_VERSION, MIGRATION_RULE_FILE_NAME
 
+
+class WindowControlButton(QAbstractButton):
+    """Small, fully painted window control used by the custom title bar."""
+
+    def __init__(self, control_type, parent=None):
+        super().__init__(parent)
+        self.control_type = control_type
+        self.setFixedSize(42, 34)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        if control_type == "close":
+            self.setToolTip("关闭")
+            self.setAccessibleName("关闭窗口")
+        else:
+            self.setToolTip("最小化")
+            self.setAccessibleName("最小化窗口")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        hovered = self.underMouse()
+        pressed = self.isDown()
+        if self.control_type == "close" and hovered:
+            background = QColor("#C42B1C" if not pressed else "#A82015")
+            foreground = QColor("#FFFFFF")
+        else:
+            if pressed:
+                background = QColor("#D9E1E6")
+            elif hovered:
+                background = QColor("#E3EAEE")
+            else:
+                background = QColor(Qt.GlobalColor.transparent)
+            foreground = QColor("#182230")
+
+        painter.fillRect(self.rect(), background)
+        pen = QPen(foreground)
+        pen.setWidthF(1.5)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        painter.setPen(pen)
+
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        if self.control_type == "close":
+            painter.drawLine(
+                int(center_x - 5), int(center_y - 5),
+                int(center_x + 5), int(center_y + 5),
+            )
+            painter.drawLine(
+                int(center_x + 5), int(center_y - 5),
+                int(center_x - 5), int(center_y + 5),
+            )
+        else:
+            painter.drawLine(
+                int(center_x - 5), int(center_y + 3),
+                int(center_x + 5), int(center_y + 3),
+            )
+
+
+class DraggableHeader(QWidget):
+    """Content header that doubles as the frameless window drag area."""
+
+    def __init__(self, window):
+        super().__init__()
+        self._window = window
+        self._drag_offset = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            handle = self._window.windowHandle()
+            if handle is not None and handle.startSystemMove():
+                self._drag_offset = None
+            else:
+                self._drag_offset = (
+                    event.globalPosition().toPoint()
+                    - self._window.frameGeometry().topLeft()
+                )
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._drag_offset is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            self._window.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+
+class ElidedPathLabel(QLabel):
+    """Single-line path display that preserves the useful path ending."""
+
+    def __init__(self, placeholder="尚未选择..."):
+        super().__init__()
+        self._full_text = ""
+        self._placeholder = placeholder
+        self.setObjectName("pathDisplay")
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(0)
+        self.setFixedHeight(38)
+        self._refresh_text()
+
+    def setText(self, text):
+        self._full_text = text or ""
+        self.setToolTip(self._full_text)
+        self._refresh_text()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_text()
+
+    def _refresh_text(self):
+        display_text = self._full_text or self._placeholder
+        available_width = max(40, self.width() - 24)
+        elided = self.fontMetrics().elidedText(
+            display_text,
+            Qt.TextElideMode.ElideMiddle,
+            available_width,
+        )
+        QLabel.setText(self, elided)
+
+
+class ChevronComboBox(QComboBox):
+    """Combo box with a lightweight chevron that matches the custom UI."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor("#667085" if self.isEnabled() else "#98A2B3")
+        pen = QPen(color)
+        pen.setWidthF(1.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+
+        center_x = self.width() - 18
+        center_y = self.height() // 2
+        painter.drawLine(center_x - 4, center_y - 2, center_x, center_y + 2)
+        painter.drawLine(center_x, center_y + 2, center_x + 4, center_y - 2)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"DC整合包数据迁移工具 {APP_VERSION}")
+        self.setWindowTitle(f"DreamCity 整合包数据迁移工具 {APP_VERSION}")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         icon_path = get_resource_path('assets', 'icon.ico')
+        window_icon = QIcon()
         if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+            window_icon = QIcon(icon_path)
+            self.setWindowIcon(window_icon)
 
-        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
-        
         # Main Widget
         central_widget = QWidget()
+        central_widget.setObjectName("centralWidget")
         self.setCentralWidget(central_widget)
-        self.main_layout = QVBoxLayout(central_widget)
-        self.main_layout.setContentsMargins(12, 12, 12, 12)
+
+        window_layout = QVBoxLayout(central_widget)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        window_layout.setSpacing(0)
+
+        self.window_surface = QFrame()
+        self.window_surface.setObjectName("windowSurface")
+        window_layout.addWidget(self.window_surface, 1)
+
+        self.main_layout = QVBoxLayout(self.window_surface)
+        self.main_layout.setContentsMargins(24, 18, 24, 8)
+        self.main_layout.setSpacing(18)
+
+        self.setup_style()
 
         # 1. Header Section
         self.setup_header()
@@ -48,14 +214,181 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.init_defaults()
 
-        # Prevent long status text from stretching layout
-        self._status_elide_width = (
-            self.from_group.width() + self.arrow_label.width() + self.to_group.width()
-        )
+        # Use a stable initial size, while still adapting to DPI and longer text.
+        self.setFixedSize(780, 410)
 
-        # Disable resizing
-        self.adjustSize()
-        self.setFixedSize(self.size())
+    def setup_style(self):
+        self.setStyleSheet("""
+            QMainWindow, QWidget#centralWidget {
+                background: transparent;
+            }
+
+            QFrame#windowSurface {
+                background: #F5F7FA;
+                color: #182230;
+                font-family: "Microsoft YaHei UI", "Segoe UI";
+                font-size: 13px;
+                border: 1px solid #D9E0E6;
+                border-radius: 14px;
+            }
+
+            QLabel#appTitle {
+                color: #101828;
+                font-size: 20px;
+                font-weight: 600;
+            }
+
+            QLabel#versionBadge {
+                color: #8F352A;
+                background: #FBEAE7;
+                border-radius: 9px;
+                padding: 2px 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+
+            QLabel#description {
+                color: #475467;
+                font-size: 13px;
+            }
+
+            QLabel#fieldLabel, QLabel#statusLabel {
+                color: #667085;
+                font-size: 12px;
+            }
+
+            QLabel#statusLabel[state="ready"] {
+                color: #287A4B;
+            }
+
+            QLabel#statusLabel[state="error"] {
+                color: #B42318;
+            }
+
+            QFrame#migrationCard {
+                background: #FFFFFF;
+                border: 1px solid #DDE2E8;
+                border-radius: 10px;
+            }
+
+            QLabel#cardTitle {
+                color: #182230;
+                font-size: 15px;
+                font-weight: 600;
+                border: none;
+                background: transparent;
+            }
+
+            QLabel#pathDisplay {
+                color: #344054;
+                background: #F9FAFB;
+                border: 1px solid #D0D5DD;
+                border-radius: 6px;
+                padding: 0 11px;
+            }
+
+            QLabel#pathDisplay:disabled {
+                color: #98A2B3;
+                background: #F2F4F7;
+                border-color: #E4E7EC;
+            }
+
+            QPushButton#browseButton {
+                min-height: 36px;
+                padding: 0 14px;
+                color: #344054;
+                background: #FFFFFF;
+                border: 1px solid #D0D5DD;
+                border-radius: 6px;
+                font-weight: 500;
+            }
+
+            QPushButton#browseButton:hover {
+                background: #F9FAFB;
+                border-color: #98A2B3;
+            }
+
+            QPushButton#browseButton:pressed {
+                background: #F2F4F7;
+            }
+
+            QComboBox {
+                min-height: 36px;
+                padding: 0 10px;
+                color: #182230;
+                background: #FFFFFF;
+                border: 1px solid #D0D5DD;
+                border-radius: 6px;
+            }
+
+            QComboBox:hover, QComboBox:focus {
+                border-color: #A84235;
+            }
+
+            QComboBox:disabled {
+                color: #98A2B3;
+                background: #F2F4F7;
+                border-color: #E4E7EC;
+            }
+
+            QComboBox::drop-down {
+                width: 34px;
+                border: none;
+                background: transparent;
+            }
+
+            QComboBox::down-arrow {
+                image: none;
+                width: 0;
+                height: 0;
+            }
+
+            QPushButton#primaryButton {
+                min-width: 150px;
+                min-height: 40px;
+                padding: 0 20px;
+                color: #FFFFFF;
+                background: #B54134;
+                border: 1px solid #B54134;
+                border-radius: 7px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+
+            QPushButton#primaryButton:hover {
+                background: #9E352A;
+                border-color: #9E352A;
+            }
+
+            QPushButton#primaryButton:pressed {
+                background: #852C24;
+                border-color: #852C24;
+            }
+
+            QPushButton#primaryButton:disabled {
+                color: #98A2B3;
+                background: #E4E7EC;
+                border-color: #E4E7EC;
+            }
+
+            QProgressBar {
+                min-height: 7px;
+                max-height: 7px;
+                background: #E4E7EC;
+                border: none;
+                border-radius: 3px;
+            }
+
+            QProgressBar::chunk {
+                background: #B54134;
+                border-radius: 3px;
+            }
+
+            QLabel#footerLink {
+                color: #667085;
+                font-size: 12px;
+            }
+        """)
 
     @staticmethod
     def _normalize_path_for_fs(path: str) -> str:
@@ -73,176 +406,189 @@ class MainWindow(QMainWindow):
         return path.replace('\\', '/')
 
     def setup_header(self):
-        header_layout = QVBoxLayout()
+        header = DraggableHeader(self)
+        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(2)
-        
-        desc = QLabel("帮你快速迁移旧版DC整合包数据（存档/设置/地图等）到新版中。")
-        tutorial = QLabel("<b>使用方法：</b>1. 先安装新版DC整合包 &nbsp; 2. 使用本工具迁移旧版数据到新版 &nbsp; 3. 自行添加可选MOD")
-        
+
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(8)
+
+        title = QLabel("DreamCity 整合包数据迁移工具")
+        title.setObjectName("appTitle")
+        title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        version = QLabel(APP_VERSION)
+        version.setObjectName("versionBadge")
+        version.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        self.minimize_button = WindowControlButton("minimize")
+        self.close_button = WindowControlButton("close")
+        self.minimize_button.clicked.connect(self.showMinimized)
+        self.close_button.clicked.connect(self.close)
+
+        title_layout.addWidget(title)
+        title_layout.addWidget(version)
+        title_layout.addStretch()
+        title_layout.addWidget(self.minimize_button)
+        title_layout.addWidget(self.close_button)
+
+        desc = QLabel("快速迁移旧版存档、设置和地图等到新版整合包")
+        desc.setObjectName("description")
+        desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        header_layout.addLayout(title_layout)
         header_layout.addWidget(desc)
-        header_layout.addWidget(tutorial)
-        
-        self.main_layout.addLayout(header_layout)
-        
-        # Separator
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        self.main_layout.addWidget(line)
+        self.main_layout.addWidget(header)
 
     def setup_footer(self):
-        footer_layout = QHBoxLayout()
-        footer_layout.setContentsMargins(0, 10, 0, 0)
+        footer = QWidget()
+        footer.setFixedHeight(22)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(0, 0, 0, 0)
 
         info_text = (
-            "项目开源地址："
             "<a href='https://github.com/DreamCity-DC/DC-Modpack-Data-Migration' "
-            "style='color:blue;text-decoration:none;'>"
-            "https://github.com/DreamCity-DC/DC-Modpack-Data-Migration"
+            "style='color:#8F352A;text-decoration:none;'>"
+            "GitHub 开源地址"
             "</a>"
         )
         info = QLabel(info_text)
+        info.setObjectName("footerLink")
         info.setOpenExternalLinks(True)
-        info.setStyleSheet("color: gray;")
 
         footer_layout.addWidget(info)
         footer_layout.addStretch()
-        self.main_layout.addLayout(footer_layout)
+        self.main_layout.addWidget(footer)
 
     def setup_selection_area(self):
         selection_layout = QHBoxLayout()
-        selection_layout.setAlignment(Qt.AlignmentFlag.AlignCenter) # Center everything
+        selection_layout.setSpacing(14)
         
         # --- Left Group (Source) ---
-        self.lbl_from_path = QTextEdit()
-        self.combo_from_ver = QComboBox()
+        self.lbl_from_path = ElidedPathLabel()
+        self.combo_from_ver = ChevronComboBox()
         
         self.from_group = self.create_part_group(
-            "旧版本 (Source)", 
+            "旧版整合包",
             self.lbl_from_path, 
             self.select_from_directory, 
             self.combo_from_ver
         )
         
         # --- Right Group (Target) ---
-        self.lbl_to_path = QTextEdit()
-        self.combo_to_ver = QComboBox()
+        self.lbl_to_path = ElidedPathLabel()
+        self.combo_to_ver = ChevronComboBox()
         
         self.to_group = self.create_part_group(
-            "新版本 (Target)", 
+            "新版整合包",
             self.lbl_to_path, 
             self.select_to_directory, 
             self.combo_to_ver
         )
 
         # Arrow (in layout, avoids manual repositioning)
-        self.arrow_label = QLabel("➜")
+        self.arrow_label = QLabel("→")
         font = self.arrow_label.font()
-        font.setPointSize(20)
-        font.setBold(True)
+        font.setPointSize(18)
         self.arrow_label.setFont(font)
-        self.arrow_label.setStyleSheet("color: #666; background: transparent;")
+        self.arrow_label.setStyleSheet("color: #98A2B3; background: transparent;")
         self.arrow_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.arrow_label.setFixedWidth(25)
+        self.arrow_label.setFixedWidth(28)
 
-        selection_layout.addWidget(self.from_group)
+        selection_layout.addWidget(self.from_group, 1)
         selection_layout.addWidget(self.arrow_label)
-        selection_layout.addWidget(self.to_group)
+        selection_layout.addWidget(self.to_group, 1)
         
         self.main_layout.addLayout(selection_layout)
 
     def create_part_group(self, title, path_widget, browse_func, combo_box):
-        group = QGroupBox(title)
-        group.setFixedWidth(320) 
-        
+        group = QFrame()
+        group.setObjectName("migrationCard")
+        group.setMinimumWidth(280)
+
         layout = QVBoxLayout(group)
-        
-        # Row 1: Header + Browse Button
-        header_layout = QHBoxLayout()
-        lbl_title = QLabel("整合包文件夹:")
-        lbl_title.setStyleSheet("font-weight: bold; color: #444;")
-        
-        btn_browse = QPushButton("选择...")
+        layout.setContentsMargins(18, 16, 18, 18)
+        layout.setSpacing(9)
+
+        card_title = QLabel(title)
+        card_title.setObjectName("cardTitle")
+        layout.addWidget(card_title)
+        layout.addSpacing(3)
+
+        lbl_title = QLabel("整合包文件夹")
+        lbl_title.setObjectName("fieldLabel")
+        layout.addWidget(lbl_title)
+
+        path_layout = QHBoxLayout()
+        path_layout.setSpacing(8)
+
+        btn_browse = QPushButton("选择文件夹")
+        btn_browse.setObjectName("browseButton")
         btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_browse.setFixedWidth(60)
-        btn_browse.setFixedHeight(24)
         btn_browse.clicked.connect(browse_func)
-        
-        header_layout.addWidget(lbl_title)
-        header_layout.addStretch()
-        header_layout.addWidget(btn_browse)
-        
-        # Row 2: Path Display (QTextEdit)
-        path_widget.setPlaceholderText("未选择路径")
-        path_widget.setReadOnly(True)
-        path_widget.setFrameStyle(QFrame.Shape.NoFrame) # No border
-        path_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        path_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # Wrap anywhere to prevent ugly breaks at slashes
-        path_widget.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
-        
-        path_widget.setStyleSheet("""
-            QTextEdit {
-                background: transparent;
-                color: #333;
-                font-family: "Segoe UI", "Microsoft YaHei";
-                font-size: 12px;
-            }
-            QTextEdit:disabled {
-                color: #666;
-            }
-        """)
-        path_widget.setFixedHeight(45) 
-        # Keep path display disabled until a valid directory is selected.
+
+        path_layout.addWidget(path_widget, 1)
+        path_layout.addWidget(btn_browse)
+        layout.addLayout(path_layout)
+
         path_widget.setEnabled(False)
-        
-        # Row 3: Version Header
-        lbl_ver = QLabel("游戏版本:")
-        lbl_ver.setStyleSheet("font-weight: bold; color: #444;")
-        
-        # Row 4: ComboBox
-        combo_box.setPlaceholderText("请先选择路径...")
+
+        lbl_ver = QLabel("游戏版本")
+        lbl_ver.setObjectName("fieldLabel")
+
+        combo_box.setPlaceholderText("请先选择整合包...")
         combo_box.setEnabled(False)
-        combo_box.setFixedHeight(28)
-        
-        layout.addLayout(header_layout)
-        layout.addWidget(path_widget)
+        combo_box.setFixedHeight(38)
+
+        layout.addSpacing(5)
         layout.addWidget(lbl_ver)
         layout.addWidget(combo_box)
-        layout.addStretch() 
-        
+
         return group
 
     def setup_action_area(self):
-        action_layout = QVBoxLayout()
-        action_layout.setSpacing(5)
-        
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(18)
+
+        status_panel = QWidget()
+        status_panel.setFixedHeight(48)
+        status_layout = QVBoxLayout(status_panel)
+        status_layout.setContentsMargins(0, 1, 0, 1)
+        status_layout.setSpacing(6)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFixedHeight(15) # Slim progress bar
+        self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
-        
-        self.lbl_status = QLabel("")
+
+        self.lbl_status = QLabel("请选择旧版整合包和游戏版本")
+        self.lbl_status.setObjectName("statusLabel")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.lbl_status.setTextFormat(Qt.TextFormat.PlainText)
         self.lbl_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.lbl_status.setMinimumWidth(0)
-        font = self.lbl_status.font()
-        font.setPointSize(8)
-        self.lbl_status.setFont(font)
-        self.lbl_status.hide()
-        
+
+        status_layout.addWidget(self.lbl_status)
+        status_layout.addWidget(self.progress_bar)
+        status_layout.addStretch()
+
         self.btn_migrate = QPushButton("开始迁移数据")
-        self.btn_migrate.setMinimumHeight(30)
+        self.btn_migrate.setObjectName("primaryButton")
+        self.btn_migrate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_migrate.setEnabled(False)
         self.btn_migrate.clicked.connect(self.start_migration)
-        
-        action_layout.addWidget(self.progress_bar)
-        action_layout.addWidget(self.lbl_status)
+
+        action_layout.addWidget(status_panel, 1)
         action_layout.addWidget(self.btn_migrate)
-        
+
         self.main_layout.addLayout(action_layout)
+
+    def _set_status(self, text, state="normal"):
+        self.lbl_status.setText(text)
+        self.lbl_status.setProperty("state", state)
+        self.lbl_status.style().unpolish(self.lbl_status)
+        self.lbl_status.style().polish(self.lbl_status)
 
     def init_defaults(self):
         # Default TO path: Current Directory
@@ -292,7 +638,7 @@ class MainWindow(QMainWindow):
 
     def select_from_directory(self):
         self.handle_directory_selection(
-            "选择旧版本整合包目录",
+            "选择旧版本整合包文件夹",
             self.set_from_path,
             self.combo_from_ver,
             auto_select_max=False
@@ -300,7 +646,7 @@ class MainWindow(QMainWindow):
 
     def select_to_directory(self):
         self.handle_directory_selection(
-            "选择新版本整合包目录",
+            "选择新版本整合包文件夹",
             self.set_to_path,
             self.combo_to_ver,
             auto_select_max=True
@@ -362,11 +708,11 @@ class MainWindow(QMainWindow):
                 combo_box.setCurrentIndex(-1)
         else:
             if show_warning:
-                QMessageBox.warning(self, "错误", "你必须选择一个有效的整合包路径")
+                QMessageBox.warning(self, "错误", "你必须选择一个有效的整合包文件夹")
             set_path_func(None) # Reset
             combo_box.clear()
             combo_box.setEnabled(False)
-            combo_box.setPlaceholderText("请先选择路径...")
+            combo_box.setPlaceholderText("请先选择整合包...")
 
     def check_ready(self):
         is_ready = (
@@ -376,6 +722,21 @@ class MainWindow(QMainWindow):
             self.combo_to_ver.currentText()
         )
         self.btn_migrate.setEnabled(bool(is_ready))
+
+        worker = getattr(self, "worker", None)
+        if worker is not None and worker.isRunning():
+            return
+
+        if is_ready:
+            self._set_status("已准备就绪，请确认版本后开始迁移", "ready")
+        elif not getattr(self, "from_root_path", None):
+            self._set_status("请选择旧版整合包和游戏版本")
+        elif not self.combo_from_ver.currentText():
+            self._set_status("请选择旧版整合包的游戏版本")
+        elif not getattr(self, "to_root_path", None):
+            self._set_status("请选择新版整合包和游戏版本")
+        else:
+            self._set_status("请选择新版整合包的游戏版本")
 
     def start_migration(self):
         from_ver = self.combo_from_ver.currentText()
@@ -388,7 +749,7 @@ class MainWindow(QMainWindow):
         to_full_path = self._normalize_path_for_fs(to_full_path)
 
         if os.path.normpath(from_full_path) == os.path.normpath(to_full_path):
-            QMessageBox.warning(self, "错误", "源目录和目标目录相同，请重新选择")
+            QMessageBox.warning(self, "错误", "源文件夹和目标文件夹相同，请重新选择")
             return
 
         confirm = QMessageBox(self)
@@ -398,7 +759,7 @@ class MainWindow(QMainWindow):
         confirm.setInformativeText(
             f"从：{self._format_path_for_ui(from_full_path)}\n\n"
             f"到：{self._format_path_for_ui(to_full_path)}\n\n"
-            "目标整合包的数据将会被覆盖，请确认无误"
+            "新版整合包的数据将会被覆盖，请确认无误"
         )
         confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
@@ -426,32 +787,32 @@ class MainWindow(QMainWindow):
 
         self.progress_bar.setValue(0)
         self.progress_bar.show()
-        self.lbl_status.setText("")
-        self.lbl_status.show()
+        self._set_status("正在准备迁移...")
         self.btn_migrate.setEnabled(False)
+        self.from_group.setEnabled(False)
+        self.to_group.setEnabled(False)
         self.worker.start()
 
     def update_progress(self, value, msg):
         self.progress_bar.setValue(value)
         msg = msg or ""
         self.lbl_status.setToolTip(msg)
-        self.lbl_status.setText(
+        self._set_status(
             self.lbl_status.fontMetrics().elidedText(
-                msg,
+                f"{value}%  ·  {msg}",
                 Qt.TextElideMode.ElideMiddle,
-                self._status_elide_width,
+                max(80, self.lbl_status.width()),
             )
         )
-        if not self.lbl_status.isVisible():
-            self.lbl_status.show()
 
     def migration_finished(self, success, msg):
+        self.from_group.setEnabled(True)
+        self.to_group.setEnabled(True)
         self.btn_migrate.setEnabled(True)
         self.progress_bar.hide()
-        self.lbl_status.setText("")
-        self.lbl_status.hide()
-        
+
         if success:
+            self._set_status("迁移完成", "ready")
             QMessageBox.information(self, "成功", f"{msg}\n\n请打开【可选Mod】文件夹选用自己想要的可选MOD")
             # Open Explorer
             try:
@@ -459,5 +820,5 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         else:
+            self._set_status("迁移失败，请查看错误信息", "error")
             QMessageBox.critical(self, "错误", msg)
-
