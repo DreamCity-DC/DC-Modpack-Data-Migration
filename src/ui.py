@@ -2,7 +2,7 @@ import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QComboBox, QFileDialog, QFrame, QMessageBox, 
-    QProgressBar, QSizePolicy, QAbstractButton
+    QProgressBar, QSizePolicy, QAbstractButton, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPen
@@ -181,11 +181,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         window_layout = QVBoxLayout(central_widget)
-        window_layout.setContentsMargins(0, 0, 0, 0)
+        # Keep a transparent gutter around the surface so its soft shadow is
+        # fully visible against light desktop backgrounds.
+        window_layout.setContentsMargins(14, 14, 14, 18)
         window_layout.setSpacing(0)
 
         self.window_surface = QFrame()
         self.window_surface.setObjectName("windowSurface")
+        window_shadow = QGraphicsDropShadowEffect(self.window_surface)
+        window_shadow.setBlurRadius(16)
+        window_shadow.setOffset(0, 3)
+        window_shadow.setColor(QColor(16, 24, 40, 42))
+        self.window_surface.setGraphicsEffect(window_shadow)
         window_layout.addWidget(self.window_surface, 1)
 
         self.main_layout = QVBoxLayout(self.window_surface)
@@ -215,7 +222,9 @@ class MainWindow(QMainWindow):
         self.init_defaults()
 
         # Use a stable initial size, while still adapting to DPI and longer text.
-        self.setFixedSize(780, 410)
+        # Preserve the 780 × 410 content surface while allowing room for the
+        # translucent shadow around it.
+        self.setFixedSize(808, 442)
 
     def setup_style(self):
         self.setStyleSheet("""
