@@ -652,6 +652,22 @@ class MainWindow(AnimatedMainWindow):
         valid_versions = []
         target_version = None
 
+        # A Modrinth package in the selected directory means the modpack has
+        # only been downloaded and has not yet been installed by the launcher.
+        if os.path.isfile(os.path.join(dir_path, "modpack.mrpack")):
+            if show_warning:
+                show_message(
+                    self,
+                    "整合包尚未安装",
+                    "请先启动【Plain Craft Launcher.exe】安装整合包，再使用本工具迁移数据",
+                    kind="error",
+                )
+            set_path_func(None)
+            combo_box.clear()
+            combo_box.setEnabled(False)
+            combo_box.setPlaceholderText("请先选择整合包...")
+            return
+
         # Logic to detect if user selected root or versions folder
         # Case 1: Selected .minecraft/versions/X.X.X
         if os.path.basename(os.path.dirname(dir_path)) == 'versions' and \

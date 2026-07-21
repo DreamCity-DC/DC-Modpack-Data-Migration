@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 set "ROOT=%~dp0"
@@ -13,7 +14,7 @@ uv run --locked --no-dev --group build pyinstaller ^
     --specpath "build\spec" ^
     --workpath "build\pyinstaller" ^
     --distpath "dist" ^
-    --name "dc_data_migration" ^
+    --name "从旧版DC整合包迁移数据" ^
     --icon "%ROOT%assets\icon.ico" ^
     --add-data "%ROOT%data_migration_rules.conf;." ^
     --add-data "%ROOT%assets\icon.ico;assets" ^
