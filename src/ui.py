@@ -1,7 +1,7 @@
 import os
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QComboBox, QFileDialog, QFrame, QMessageBox, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QComboBox, QFileDialog, QFrame,
     QProgressBar, QSizePolicy, QAbstractButton, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt
@@ -10,6 +10,12 @@ from PyQt6.QtGui import QColor, QIcon, QPainter, QPen
 from src.data_migration import MigrationWorker
 from src.utils import get_versions, find_max_version, get_resource_path, get_dependence_path, setup_logging
 from src.constants import APP_VERSION, MIGRATION_RULE_FILE_NAME
+from src.ui_components import (
+    AnimatedMainWindow,
+    DraggableHeader,
+    ask_confirmation,
+    show_message,
+)
 
 
 class WindowControlButton(QAbstractButton):
@@ -70,43 +76,6 @@ class WindowControlButton(QAbstractButton):
             )
 
 
-class DraggableHeader(QWidget):
-    """Content header that doubles as the frameless window drag area."""
-
-    def __init__(self, window):
-        super().__init__()
-        self._window = window
-        self._drag_offset = None
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            handle = self._window.windowHandle()
-            if handle is not None and handle.startSystemMove():
-                self._drag_offset = None
-            else:
-                self._drag_offset = (
-                    event.globalPosition().toPoint()
-                    - self._window.frameGeometry().topLeft()
-                )
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (
-            self._drag_offset is not None
-            and event.buttons() & Qt.MouseButton.LeftButton
-        ):
-            self._window.move(event.globalPosition().toPoint() - self._drag_offset)
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_offset = None
-        super().mouseReleaseEvent(event)
-
-
 class ElidedPathLabel(QLabel):
     """Single-line path display that preserves the useful path ending."""
 
@@ -162,10 +131,10 @@ class ChevronComboBox(QComboBox):
         painter.drawLine(center_x, center_y + 2, center_x + 4, center_y - 2)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(AnimatedMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"DreamCity 整合包数据迁移工具 {APP_VERSION}")
+        self.setWindowTitle(f"DreamCity 数据迁移工具 {APP_VERSION}")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -424,7 +393,7 @@ class MainWindow(QMainWindow):
         title_layout = QHBoxLayout()
         title_layout.setSpacing(8)
 
-        title = QLabel("DreamCity 整合包数据迁移工具")
+        title = QLabel("DreamCity 数据迁移工具")
         title.setObjectName("appTitle")
         title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         version = QLabel(APP_VERSION)
@@ -449,6 +418,8 @@ class MainWindow(QMainWindow):
         header_layout.addLayout(title_layout)
         header_layout.addWidget(desc)
         self.main_layout.addWidget(header)
+        # Give the header a touch more breathing room before the main cards.
+        self.main_layout.addSpacing(6)
 
     def setup_footer(self):
         footer = QWidget()
@@ -717,7 +688,12 @@ class MainWindow(QMainWindow):
                 combo_box.setCurrentIndex(-1)
         else:
             if show_warning:
-                QMessageBox.warning(self, "错误", "你必须选择一个有效的整合包文件夹")
+                show_message(
+                    self,
+                    "无法使用此文件夹",
+                    "你必须选择一个有效的整合包文件夹。",
+                    kind="error",
+                )
             set_path_func(None) # Reset
             combo_box.clear()
             combo_box.setEnabled(False)
@@ -758,26 +734,20 @@ class MainWindow(QMainWindow):
         to_full_path = self._normalize_path_for_fs(to_full_path)
 
         if os.path.normpath(from_full_path) == os.path.normpath(to_full_path):
-            QMessageBox.warning(self, "错误", "源文件夹和目标文件夹相同，请重新选择")
+            show_message(
+                self,
+                "无法开始迁移",
+                "源文件夹和目标文件夹相同，请重新选择。",
+                kind="error",
+            )
             return
 
-        confirm = QMessageBox(self)
-        confirm.setIcon(QMessageBox.Icon.Question)
-        confirm.setWindowTitle("确认")
-        confirm.setText("确认进行数据迁移工作？")
-        confirm.setInformativeText(
-            f"从：{self._format_path_for_ui(from_full_path)}\n\n"
-            f"到：{self._format_path_for_ui(to_full_path)}\n\n"
-            "新版整合包的数据将会被覆盖，请确认无误"
-        )
-        confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-        confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
-
-        # Override button text to avoid accidental clicks
-        confirm.button(QMessageBox.StandardButton.Yes).setText("确认")
-        confirm.button(QMessageBox.StandardButton.Cancel).setText("取消")
-
-        if confirm.exec() != QMessageBox.StandardButton.Yes:
+        if not ask_confirmation(
+            self,
+            "确认开始迁移？",
+            "目标整合包的数据将会被覆盖，请确认无误。",
+            confirm_text="确认迁移",
+        ):
             return
 
         # Initialize logging only when migration is about to start.
@@ -822,7 +792,12 @@ class MainWindow(QMainWindow):
 
         if success:
             self._set_status("迁移完成", "ready")
-            QMessageBox.information(self, "成功", f"{msg}\n\n请打开【可选Mod】文件夹选用自己想要的可选MOD")
+            show_message(
+                self,
+                "迁移完成",
+                f"{msg}\n\n请打开【可选Mod】文件夹选用自己想要的可选MOD。",
+                kind="success",
+            )
             # Open Explorer
             try:
                 os.startfile(self.to_root_path)
@@ -830,4 +805,4 @@ class MainWindow(QMainWindow):
                 pass
         else:
             self._set_status("迁移失败，请查看错误信息", "error")
-            QMessageBox.critical(self, "错误", msg)
+            show_message(self, "迁移失败", msg, kind="error")
