@@ -737,7 +737,7 @@ class MainWindow(QMainWindow):
             return
 
         if is_ready:
-            self._set_status("已准备就绪，请确认版本后开始迁移", "ready")
+            self._set_status("已准备就绪", "ready")
         elif not getattr(self, "from_root_path", None):
             self._set_status("请选择旧版整合包和游戏版本")
         elif not self.combo_from_ver.currentText():
