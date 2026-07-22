@@ -2,7 +2,8 @@ import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QFileDialog, QFrame,
-    QProgressBar, QSizePolicy, QAbstractButton, QGraphicsDropShadowEffect
+    QProgressBar, QSizePolicy, QAbstractButton, QGraphicsDropShadowEffect,
+    QStackedLayout
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPen
@@ -76,38 +77,193 @@ class WindowControlButton(QAbstractButton):
             )
 
 
-class ElidedPathLabel(QLabel):
-    """Single-line path display that preserves the useful path ending."""
+class FolderIcon(QWidget):
+    """Small painted folder icon that does not depend on an icon font."""
 
-    def __init__(self, placeholder="尚未选择..."):
+    def __init__(self, size=34, parent=None):
+        super().__init__(parent)
+        self._selected = False
+        self.setFixedSize(size, size)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def setSelected(self, selected):
+        self._selected = bool(selected)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            color = QColor("#AAB3BE")
+        else:
+            color = QColor("#B54134" if self._selected else "#93A0B2")
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        width = self.width()
+        height = self.height()
+        painter.drawRoundedRect(
+            round(width * 0.12),
+            round(height * 0.30),
+            round(width * 0.76),
+            round(height * 0.56),
+            4,
+            4,
+        )
+        painter.drawRoundedRect(
+            round(width * 0.20),
+            round(height * 0.18),
+            round(width * 0.38),
+            round(height * 0.28),
+            3,
+            3,
+        )
+
+
+class FolderPicker(QPushButton):
+    """A single, clickable folder result with clear empty and selected states."""
+
+    def __init__(self, placeholder):
         super().__init__()
-        self._full_text = ""
+        self._full_path = ""
         self._placeholder = placeholder
-        self.setObjectName("pathDisplay")
-        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.setObjectName("folderPicker")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumWidth(0)
-        self.setFixedHeight(38)
-        self._refresh_text()
+        self.setFixedHeight(126)
 
-    def setText(self, text):
-        self._full_text = text or ""
-        self.setToolTip(self._full_text)
+        self.content_stack = QStackedLayout(self)
+        self.content_stack.setContentsMargins(0, 0, 0, 0)
+
+        empty_page = QWidget()
+        empty_page.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        empty_layout = QVBoxLayout(empty_page)
+        empty_layout.setContentsMargins(16, 13, 16, 13)
+        empty_layout.setSpacing(4)
+        empty_layout.addStretch()
+
+        self.empty_icon = FolderIcon(42, empty_page)
+        empty_layout.addWidget(self.empty_icon, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        empty_title = QLabel("选择文件夹")
+        empty_title.setObjectName("folderEmptyTitle")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addStretch()
+
+        selected_page = QWidget()
+        selected_page.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        selected_layout = QHBoxLayout(selected_page)
+        selected_layout.setContentsMargins(12, 8, 12, 8)
+        selected_layout.setSpacing(10)
+
+        self.icon = FolderIcon(parent=selected_page)
+        selected_layout.addWidget(self.icon)
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(1)
+
+        self.name_label = QLabel(placeholder)
+        self.name_label.setObjectName("folderName")
+        self.name_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.path_label = QLabel("选择后将自动检测可用版本")
+        self.path_label.setObjectName("folderPath")
+        self.path_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        text_layout.addWidget(self.name_label)
+        text_layout.addWidget(self.path_label)
+        selected_layout.addLayout(text_layout, 1)
+
+        self.action_label = QLabel("选择")
+        self.action_label.setObjectName("folderAction")
+        self.action_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        selected_layout.addWidget(self.action_label)
+
+        self.content_stack.addWidget(empty_page)
+        self.content_stack.addWidget(selected_page)
+
+        self.setPath("")
+
+    def paintEvent(self, event):
+        """Paint a clean high-DPI-safe dashed empty state and solid result state."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        selected = bool(self._full_path)
+        hovered = self.underMouse() or self.hasFocus()
+        pressed = self.isDown()
+
+        if not self.isEnabled():
+            background = QColor("#F8F9FA")
+            border = QColor("#DCE1E7")
+        elif selected:
+            background = QColor("#FDF5F3" if pressed else "#FFFAF9")
+            border = QColor("#A84235" if hovered else "#D28D84")
+        else:
+            if pressed:
+                background = QColor("#F4F7F9")
+            elif hovered:
+                background = QColor("#F8FAFC")
+            else:
+                background = QColor("#FCFDFE")
+            border = QColor("#94A3B5" if hovered else "#C5CED8")
+
+        pen = QPen(border)
+        pen.setWidthF(1.2)
+        if not selected:
+            pen.setStyle(Qt.PenStyle.CustomDashLine)
+            pen.setDashPattern([5.0, 4.0])
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+
+        painter.setPen(pen)
+        painter.setBrush(background)
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 9, 9)
+
+    def setPath(self, path):
+        self._full_path = path or ""
+        selected = bool(self._full_path)
+        self.setProperty("selected", "true" if selected else "false")
+        self.icon.setSelected(selected)
+        self.content_stack.setCurrentIndex(1 if selected else 0)
+        self.setFixedHeight(68 if selected else 126)
+        self.action_label.setText("更改")
+        self.setToolTip(self._full_path)
+        self.setAccessibleName(
+            f"已选择整合包文件夹 {self._full_path}" if selected else self._placeholder
+        )
         self._refresh_text()
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._refresh_text()
 
     def _refresh_text(self):
-        display_text = self._full_text or self._placeholder
-        available_width = max(40, self.width() - 24)
-        elided = self.fontMetrics().elidedText(
-            display_text,
-            Qt.TextElideMode.ElideMiddle,
-            available_width,
+        if not self._full_path:
+            self.name_label.setText(self._placeholder)
+            self.path_label.setText("选择后将自动检测可用版本")
+            return
+
+        normalized = os.path.normpath(self._full_path)
+        folder_name = os.path.basename(normalized) or normalized
+        available_width = max(80, self.width() - 112)
+        self.name_label.setText(
+            self.name_label.fontMetrics().elidedText(
+                folder_name,
+                Qt.TextElideMode.ElideRight,
+                available_width,
+            )
         )
-        QLabel.setText(self, elided)
+        self.path_label.setText(
+            self.path_label.fontMetrics().elidedText(
+                self._full_path,
+                Qt.TextElideMode.ElideMiddle,
+                available_width,
+            )
+        )
 
 
 class ChevronComboBox(QComboBox):
@@ -257,37 +413,63 @@ class MainWindow(AnimatedMainWindow):
                 background: transparent;
             }
 
-            QLabel#pathDisplay {
-                color: #344054;
-                background: #F9FAFB;
-                border: 1px solid #D0D5DD;
-                border-radius: 6px;
-                padding: 0 11px;
+            QAbstractButton#folderPicker {
+                background: transparent;
+                border: none;
+                text-align: left;
             }
 
-            QLabel#pathDisplay:disabled {
+            QAbstractButton#folderPicker:hover,
+            QAbstractButton#folderPicker:focus,
+            QAbstractButton#folderPicker:pressed,
+            QAbstractButton#folderPicker:disabled,
+            QAbstractButton#folderPicker[selected="true"] {
+                background: transparent;
+                border: none;
+            }
+
+            QLabel#folderName {
+                color: #27364A;
+                background: transparent;
+                border: none;
+                font-size: 13px;
+                font-weight: 600;
+            }
+
+            QLabel#folderPath {
                 color: #98A2B3;
-                background: #F2F4F7;
-                border-color: #E4E7EC;
+                background: transparent;
+                border: none;
+                font-size: 11px;
             }
 
-            QPushButton#browseButton {
-                min-height: 36px;
-                padding: 0 14px;
+            QLabel#folderAction {
+                color: #A84235;
+                background: transparent;
+                border: none;
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            QLabel#folderEmptyTitle {
                 color: #344054;
-                background: #FFFFFF;
-                border: 1px solid #D0D5DD;
-                border-radius: 6px;
-                font-weight: 500;
+                background: transparent;
+                border: none;
+                font-size: 13px;
+                font-weight: 600;
             }
 
-            QPushButton#browseButton:hover {
-                background: #F9FAFB;
-                border-color: #98A2B3;
+            QLabel#flowArrow {
+                color: #A84235;
+                background: transparent;
+                font-size: 20px;
+                font-weight: 600;
             }
 
-            QPushButton#browseButton:pressed {
-                background: #F2F4F7;
+            QLabel#flowLabel {
+                color: #98A2B3;
+                background: transparent;
+                font-size: 10px;
             }
 
             QComboBox {
@@ -443,76 +625,75 @@ class MainWindow(AnimatedMainWindow):
 
     def setup_selection_area(self):
         selection_layout = QHBoxLayout()
-        selection_layout.setSpacing(14)
+        selection_layout.setSpacing(10)
         
         # --- Left Group (Source) ---
-        self.lbl_from_path = ElidedPathLabel()
+        self.lbl_from_path = FolderPicker("选择旧版整合包文件夹")
         self.combo_from_ver = ChevronComboBox()
         
         self.from_group = self.create_part_group(
-            "旧版整合包",
+            "01 旧版整合包",
             self.lbl_from_path, 
             self.select_from_directory, 
             self.combo_from_ver
         )
         
         # --- Right Group (Target) ---
-        self.lbl_to_path = ElidedPathLabel()
+        self.lbl_to_path = FolderPicker("选择新版整合包文件夹")
         self.combo_to_ver = ChevronComboBox()
         
         self.to_group = self.create_part_group(
-            "新版整合包",
+            "02 新版整合包",
             self.lbl_to_path, 
             self.select_to_directory, 
             self.combo_to_ver
         )
 
-        # Arrow (in layout, avoids manual repositioning)
+        # Compact connector makes the direction read as a migration flow.
+        flow = QWidget()
+        flow.setFixedWidth(42)
+        flow_layout = QVBoxLayout(flow)
+        flow_layout.setContentsMargins(0, 0, 0, 0)
+        flow_layout.setSpacing(0)
+        flow_layout.addStretch()
+
         self.arrow_label = QLabel("→")
-        font = self.arrow_label.font()
-        font.setPointSize(18)
-        self.arrow_label.setFont(font)
-        self.arrow_label.setStyleSheet("color: #98A2B3; background: transparent;")
+        self.arrow_label.setObjectName("flowArrow")
         self.arrow_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.arrow_label.setFixedWidth(28)
+        flow_label = QLabel("迁移到")
+        flow_label.setObjectName("flowLabel")
+        flow_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        flow_layout.addWidget(self.arrow_label)
+        flow_layout.addWidget(flow_label)
+        flow_layout.addStretch()
 
         selection_layout.addWidget(self.from_group, 1)
-        selection_layout.addWidget(self.arrow_label)
+        selection_layout.addWidget(flow)
         selection_layout.addWidget(self.to_group, 1)
         
         self.main_layout.addLayout(selection_layout)
 
-    def create_part_group(self, title, path_widget, browse_func, combo_box):
+    def create_part_group(
+        self,
+        title,
+        path_widget,
+        browse_func,
+        combo_box,
+    ):
         group = QFrame()
         group.setObjectName("migrationCard")
         group.setMinimumWidth(280)
 
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(18, 16, 18, 18)
-        layout.setSpacing(9)
+        layout.setContentsMargins(15, 14, 15, 16)
+        layout.setSpacing(8)
 
         card_title = QLabel(title)
         card_title.setObjectName("cardTitle")
         layout.addWidget(card_title)
-        layout.addSpacing(3)
 
-        lbl_title = QLabel("整合包文件夹")
-        lbl_title.setObjectName("fieldLabel")
-        layout.addWidget(lbl_title)
-
-        path_layout = QHBoxLayout()
-        path_layout.setSpacing(8)
-
-        btn_browse = QPushButton("选择文件夹")
-        btn_browse.setObjectName("browseButton")
-        btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_browse.clicked.connect(browse_func)
-
-        path_layout.addWidget(path_widget, 1)
-        path_layout.addWidget(btn_browse)
-        layout.addLayout(path_layout)
-
-        path_widget.setEnabled(False)
+        path_widget.clicked.connect(browse_func)
+        layout.addWidget(path_widget)
 
         lbl_ver = QLabel("游戏版本")
         lbl_ver.setObjectName("fieldLabel")
@@ -521,9 +702,12 @@ class MainWindow(AnimatedMainWindow):
         combo_box.setEnabled(False)
         combo_box.setFixedHeight(38)
 
-        layout.addSpacing(5)
         layout.addWidget(lbl_ver)
         layout.addWidget(combo_box)
+
+        group.version_label = lbl_ver
+        lbl_ver.hide()
+        combo_box.hide()
 
         return group
 
@@ -542,7 +726,7 @@ class MainWindow(AnimatedMainWindow):
         self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
 
-        self.lbl_status = QLabel("请选择旧版整合包和游戏版本")
+        self.lbl_status = QLabel("请先选择旧版整合包文件夹")
         self.lbl_status.setObjectName("statusLabel")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.lbl_status.setTextFormat(Qt.TextFormat.PlainText)
@@ -591,30 +775,29 @@ class MainWindow(AnimatedMainWindow):
             normalized = self._normalize_path_for_fs(path)
             display = self._format_path_for_ui(normalized)
             self.to_root_path = normalized
-            self.lbl_to_path.setText(display)
-            self.lbl_to_path.setToolTip(display)
-            self.lbl_to_path.setEnabled(True)
+            self.lbl_to_path.setPath(display)
+            self._set_group_has_path(self.to_group, self.combo_to_ver, True)
         else:
             self.to_root_path = None
-            # Use placeholder text for the empty state to keep visuals consistent.
-            self.lbl_to_path.setText("")
-            self.lbl_to_path.setToolTip("")
-            self.lbl_to_path.setEnabled(False)
+            self.lbl_to_path.setPath("")
+            self._set_group_has_path(self.to_group, self.combo_to_ver, False)
 
     def set_from_path(self, path):
         if path:
             normalized = self._normalize_path_for_fs(path)
             display = self._format_path_for_ui(normalized)
             self.from_root_path = normalized
-            self.lbl_from_path.setText(display)
-            self.lbl_from_path.setToolTip(display)
-            self.lbl_from_path.setEnabled(True)
+            self.lbl_from_path.setPath(display)
+            self._set_group_has_path(self.from_group, self.combo_from_ver, True)
         else:
             self.from_root_path = None
-            # Use placeholder text for the empty state to keep visuals consistent.
-            self.lbl_from_path.setText("")
-            self.lbl_from_path.setToolTip("")
-            self.lbl_from_path.setEnabled(False)
+            self.lbl_from_path.setPath("")
+            self._set_group_has_path(self.from_group, self.combo_from_ver, False)
+
+    @staticmethod
+    def _set_group_has_path(group, combo_box, has_path):
+        group.version_label.setVisible(has_path)
+        combo_box.setVisible(has_path)
 
     def select_from_directory(self):
         self.handle_directory_selection(
@@ -716,11 +899,16 @@ class MainWindow(AnimatedMainWindow):
             combo_box.setPlaceholderText("请先选择整合包...")
 
     def check_ready(self):
+        from_complete = bool(
+            getattr(self, 'from_root_path', None)
+            and self.combo_from_ver.currentText()
+        )
+        to_complete = bool(
+            getattr(self, 'to_root_path', None)
+            and self.combo_to_ver.currentText()
+        )
         is_ready = (
-            hasattr(self, 'from_root_path') and self.from_root_path and
-            hasattr(self, 'to_root_path') and self.to_root_path and
-            self.combo_from_ver.currentText() and
-            self.combo_to_ver.currentText()
+            from_complete and to_complete
         )
         self.btn_migrate.setEnabled(bool(is_ready))
 
@@ -731,11 +919,11 @@ class MainWindow(AnimatedMainWindow):
         if is_ready:
             self._set_status("已准备就绪", "ready")
         elif not getattr(self, "from_root_path", None):
-            self._set_status("请选择旧版整合包和游戏版本")
+            self._set_status("请先选择旧版整合包文件夹")
         elif not self.combo_from_ver.currentText():
             self._set_status("请选择旧版整合包的游戏版本")
         elif not getattr(self, "to_root_path", None):
-            self._set_status("请选择新版整合包和游戏版本")
+            self._set_status("请选择新版整合包文件夹")
         else:
             self._set_status("请选择新版整合包的游戏版本")
 
