@@ -761,7 +761,7 @@ class MainWindow(AnimatedMainWindow):
         if not ask_confirmation(
             self,
             "确认开始迁移？",
-            "目标整合包的数据将会被覆盖，请确认无误。",
+            "新版整合包的数据将会被覆盖，请确认无误。",
             confirm_text="确认迁移",
         ):
             return
