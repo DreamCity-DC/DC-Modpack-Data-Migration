@@ -5,8 +5,9 @@ from PyQt6.QtWidgets import (
     QProgressBar, QSizePolicy, QAbstractButton, QGraphicsDropShadowEffect,
     QStackedLayout
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPen
+from PyQt6.QtCore import QByteArray, QRectF, Qt, QUrl
+from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPen
+from PyQt6.QtSvg import QSvgRenderer
 
 from src.data_migration import MigrationWorker
 from src.utils import get_versions, find_max_version, get_resource_path, get_dependence_path, setup_logging
@@ -28,7 +29,28 @@ class WindowControlButton(QAbstractButton):
         self.setFixedSize(42, 34)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setCursor(Qt.CursorShape.ArrowCursor)
-        if control_type == "close":
+        if control_type == "github":
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("GitHub 开源地址")
+            self.setAccessibleName("打开 GitHub 开源地址")
+            self._github_icon = QSvgRenderer(QByteArray(b'''
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path fill="#182230" d="M12 .297C5.37.297 0 5.67 0 12.297c0 5.303
+                    3.438 9.8 8.205 11.385.6.113.82-.258.82-.577
+                    0-.285-.01-1.04-.015-2.04-3.338.724-4.043-1.61-4.043-1.61
+                    -.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729
+                    1.205.084 1.838 1.237 1.838 1.237 1.07 1.835 2.809 1.305
+                    3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.334
+                    -5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523
+                    .105-3.176 0 0 1.005-.322 3.3 1.23a11.51 11.51 0 0 1
+                    3-.405c1.02.005 2.045.138 3 .405 2.28-1.552 3.285-1.23
+                    3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91
+                    1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096
+                    .81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57
+                    C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                </svg>
+            '''), self)
+        elif control_type == "close":
             self.setToolTip("关闭")
             self.setAccessibleName("关闭窗口")
         else:
@@ -54,6 +76,13 @@ class WindowControlButton(QAbstractButton):
             foreground = QColor("#182230")
 
         painter.fillRect(self.rect(), background)
+        if self.control_type == "github":
+            self._github_icon.render(
+                painter,
+                QRectF((self.width() - 18) / 2, (self.height() - 18) / 2, 18, 18),
+            )
+            return
+
         pen = QPen(foreground)
         pen.setWidthF(1.5)
         pen.setCapStyle(Qt.PenCapStyle.SquareCap)
@@ -321,7 +350,7 @@ class MainWindow(AnimatedMainWindow):
         window_layout.addWidget(self.window_surface, 1)
 
         self.main_layout = QVBoxLayout(self.window_surface)
-        self.main_layout.setContentsMargins(24, 18, 24, 8)
+        self.main_layout.setContentsMargins(24, 24, 24, 24)
         self.main_layout.setSpacing(18)
 
         self.setup_style()
@@ -339,17 +368,13 @@ class MainWindow(AnimatedMainWindow):
         # 3. Action Section
         self.setup_action_area()
 
-        # 4. Footer (Open Source Link)
-        self.setup_footer()
-
         # Initialize State
         self.worker = None
         self.init_defaults()
 
-        # Use a stable initial size, while still adapting to DPI and longer text.
-        # Preserve the 780 × 410 content surface while allowing room for the
-        # translucent shadow around it.
-        self.setFixedSize(808, 442)
+        # Keep equal top and bottom padding after removing the footer.
+        # Include the translucent shadow gutter around the 780 × 366 surface.
+        self.setFixedSize(808, 398)
 
     def setup_style(self):
         self.setStyleSheet("""
@@ -379,11 +404,6 @@ class MainWindow(AnimatedMainWindow):
                 padding: 2px 8px;
                 font-size: 11px;
                 font-weight: 600;
-            }
-
-            QLabel#description {
-                color: #475467;
-                font-size: 13px;
             }
 
             QLabel#fieldLabel, QLabel#statusLabel {
@@ -544,10 +564,6 @@ class MainWindow(AnimatedMainWindow):
                 border-radius: 3px;
             }
 
-            QLabel#footerLink {
-                color: #667085;
-                font-size: 12px;
-            }
         """)
 
     @staticmethod
@@ -582,46 +598,28 @@ class MainWindow(AnimatedMainWindow):
         version.setObjectName("versionBadge")
         version.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
+        self.github_button = WindowControlButton("github")
         self.minimize_button = WindowControlButton("minimize")
         self.close_button = WindowControlButton("close")
+        self.github_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("https://github.com/DreamCity-DC/DC-Modpack-Data-Migration")
+            )
+        )
         self.minimize_button.clicked.connect(self.showMinimized)
         self.close_button.clicked.connect(self.close)
 
         title_layout.addWidget(title)
         title_layout.addWidget(version)
         title_layout.addStretch()
+        title_layout.addWidget(self.github_button)
         title_layout.addWidget(self.minimize_button)
         title_layout.addWidget(self.close_button)
 
-        desc = QLabel("快速迁移旧版存档、设置和地图等到新版整合包")
-        desc.setObjectName("description")
-        desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
         header_layout.addLayout(title_layout)
-        header_layout.addWidget(desc)
         self.main_layout.addWidget(header)
         # Give the header a touch more breathing room before the main cards.
         self.main_layout.addSpacing(6)
-
-    def setup_footer(self):
-        footer = QWidget()
-        footer.setFixedHeight(22)
-        footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(0, 0, 0, 0)
-
-        info_text = (
-            "<a href='https://github.com/DreamCity-DC/DC-Modpack-Data-Migration' "
-            "style='color:#8F352A;text-decoration:none;'>"
-            "GitHub 开源地址"
-            "</a>"
-        )
-        info = QLabel(info_text)
-        info.setObjectName("footerLink")
-        info.setOpenExternalLinks(True)
-
-        footer_layout.addWidget(info)
-        footer_layout.addStretch()
-        self.main_layout.addWidget(footer)
 
     def setup_selection_area(self):
         selection_layout = QHBoxLayout()
@@ -687,6 +685,8 @@ class MainWindow(AnimatedMainWindow):
         layout = QVBoxLayout(group)
         layout.setContentsMargins(15, 14, 15, 16)
         layout.setSpacing(8)
+        # Keep card contents packed at the top in both empty and selected states.
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         card_title = QLabel(title)
         card_title.setObjectName("cardTitle")
@@ -972,6 +972,7 @@ class MainWindow(AnimatedMainWindow):
         self.progress_bar.show()
         self._set_status("正在准备迁移...")
         self.btn_migrate.setEnabled(False)
+        self.btn_migrate.setText("迁移中...")
         self.from_group.setEnabled(False)
         self.to_group.setEnabled(False)
         self.worker.start()
@@ -992,6 +993,7 @@ class MainWindow(AnimatedMainWindow):
         self.from_group.setEnabled(True)
         self.to_group.setEnabled(True)
         self.btn_migrate.setEnabled(True)
+        self.btn_migrate.setText("开始迁移数据")
         self.progress_bar.hide()
 
         if success:
